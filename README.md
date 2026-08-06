@@ -76,8 +76,8 @@ it. Everything follows from the pair:
 g.set_style(Light)
 g.set_dividers(true)
 g.set_header_line(true)
-g.right_align(1usize)
-g.right_align(2usize)
+g.right_align(1)
+g.right_align(2)
 ```
 
 ```
@@ -110,7 +110,7 @@ The last four ignore `dividers`, because for them the separator is not a choice 
 
 ```sysl
 m.set_style(Markdown)
-m.right_align(1usize)
+m.right_align(1)
 ```
 
 ```
@@ -138,9 +138,9 @@ on both sides: `⎢1  2  3⎥` is a row vector, and `⎡1  2  3⎦` is nothing.
 Two levels. A column has one, and a cell may override it:
 
 ```sysl
-t.set_column_align(0usize, Center)   -- this column
-t.right_align(1usize)                -- the one a table is usually asked for by name
-t.cell_align(2usize, Right)          -- this cell, in the row most recently added
+t.set_column_align(0, Center)   -- this column
+t.right_align(1)                -- the one a table is usually asked for by name
+t.cell_align(2, Right)          -- this cell, in the row most recently added
 ```
 
 A header carries an alignment of its own, so a column alignment set later reaches the numbers without
