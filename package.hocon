@@ -10,16 +10,16 @@
 // against `sysl.sum`, and compiles it as more modules.
 //
 //     dependencies {
-//       table { git = "github.com/sysl-lang/table", version = "0.1.0" }
+//       table { git = "github.com/sysl-lang/table", version = "0.1.1" }
 //     }
 //
 // The coordinate is identity rather than a URL, so it carries no `https://`, and the version is the
-// tag `v0.1.0` on this repository. The coordinate names the *package*, `table`, while the module a
+// tag `v0.1.1` on this repository. The coordinate names the *package*, `table`, while the module a
 // program imports is `sh.sysl.table`; `packages.md § 9` keeps those two deliberately apart.
 
 package {
   name    = "table"
-  version = "0.1.0"
+  version = "0.1.1"
 }
 
 // **`alloc`, because a table is a growable thing and cannot be anything else.** How many rows there

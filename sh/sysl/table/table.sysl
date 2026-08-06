@@ -332,29 +332,27 @@ struct Table
     // How **this cell** is aligned, whatever its column says. Applies to the row most recently
     // added, which is the row a caller has just written and still has in front of them.
     cell_align(*self, col: usize, a: Align)
-        val i = self.last(col)
-        val c = self.cells.at(i)
+        var v = self.cells.view()
 
-        self.cells.set(i, Cell(c.text, c.width, Some(a), c.style, c.underlined))
+        v[self.last(col)].align = Some(a)
     end cell_align
 
     // Add an escape sequence to this cell, in the row most recently added. Sequences accumulate, so
     // a cell may be given a colour and a weight by two calls.
     cell_style(*self, col: usize, esc: string)
+        var v = self.cells.view()
         val i = self.last(col)
-        val c = self.cells.at(i)
 
-        self.cells.set(i, Cell(c.text, c.width, c.align, c.style + esc, c.underlined))
+        v[i].style = v[i].style + esc
     end cell_style
 
     // Underline this cell, in the row most recently added. It is not `cell_style` with an underline
     // escape because the underline covers the cell's padding as well as its text, so that a column of
     // underlined headers is one continuous line.
     underline(*self, col: usize)
-        val i = self.last(col)
-        val c = self.cells.at(i)
+        var v = self.cells.view()
 
-        self.cells.set(i, Cell(c.text, c.width, c.align, c.style, true))
+        v[self.last(col)].underlined = true
     end underline
 
     // Whether a row of `n` cells belongs to this table. A contract clause is checked where the call

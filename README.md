@@ -24,12 +24,12 @@ Name it in your project's `package.hocon` and `sysl build` fetches it:
 
 ```hocon
 dependencies {
-  table { git = "github.com/sysl-lang/table", version = "0.1.0" }
+  table { git = "github.com/sysl-lang/table", version = "0.1.1" }
 }
 ```
 
 The coordinate is an identity rather than a URL, so it carries no `https://`, and `version` is the
-tag `v0.1.0` here.
+tag `v0.1.1` here.
 
 Or build it into an artifact and compile against that, which needs no fetching:
 
@@ -232,7 +232,7 @@ table it was rendering, so a table rendered, added to, and rendered again was qu
 sysl test .
 ```
 
-Forty cases, each asserting the exact bytes a caller gets. A table is one of the few things whose
+Forty-two cases, each asserting the exact bytes a caller gets. A table is one of the few things whose
 whole contract is its output — a column one space narrower than it should be is not a degraded table,
 it is a wrong one — so nothing here counts lines or looks for a substring.
 

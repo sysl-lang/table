@@ -129,6 +129,32 @@ renders_a_header_with_no_rows_under_it() =
 
     same(t.text(), "+---+---+\n| A | B |\n+---+---+\n", "the rule under a header needs a row to be under")
 
+// A cell that rendered to nothing is a cell of width zero, and a column of them is as wide as its
+// header. Nothing about it is a special case, which is the thing worth pinning.
+@test
+an_empty_cell_is_a_cell() =
+    var t = plain_table()
+
+    t.set_style(Ascii)
+    t.set_dividers(true)
+    t.set_header_centered(false)
+    t.header(["x"])
+    t.add([""])
+
+    same(t.text(), "+---+\n| x |\n|   |\n+---+\n", "an empty cell holds its column open")
+
+// The example the README opens with, so that the page and the library cannot drift apart.
+@test
+renders_the_table_the_readme_shows() =
+    var t = plain_table()
+
+    t.header(["language", "released", "typed"])
+    t.add(["sysl", 2026, true])
+    t.add(["C", 1972, true])
+    t.add(["Python", 1991, false])
+
+    same(t.text(), " language  released  typed\n sysl      2026      true\n C         1972      true\n Python    1991      false\n", "the first example on the page")
+
 // -- Markdown -------------------------------------------------------------------------------------
 
 @test
