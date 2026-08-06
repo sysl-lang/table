@@ -1,0 +1,591 @@
+module sh.sysl.table
+
+import sysl.buf.{Buf, buf, byte_sink}
+import sysl.text.{columns, from_utf8}
+
+// Tables of text, laid out so the columns line up.
+//
+// A table here is a sequence of rows of **values**, not of strings: a cell is anything that knows how
+// to render itself, so `t.add(["Alice", 30, true])` is ordinary code and nothing has to be converted
+// on the way in. What comes out is one of the shapes a terminal, a Markdown file or a piece of
+// mathematics wants -- a plain aligned block, a box-drawn grid, a Markdown table, tab-separated
+// fields, or a matrix in brackets.
+//
+// **The whole of the layout rests on measuring text in columns rather than in bytes or characters.**
+// A cell holding `café` is five bytes, four characters and four columns; one holding `日本` is six
+// bytes, two characters and **four** columns. Only the last of those three numbers says where the
+// next border falls, so it is the one this asks for -- `sysl.text.columns`, which is the East Asian
+// Width and combining-mark data of the Unicode Character Database. A format specifier's width would
+// have been the obvious thing to reach for and is the wrong one: it counts bytes, deliberately, so
+// that it means what `snprintf` means. Every cell here is therefore rendered with a neutral specifier
+// and padded by this module against a count it measured itself.
+//
+// ## Two axes, not ten flags
+//
+// A style says what the table is made of, and `dividers` says whether the columns are separated
+// inside it. Everything else follows from the pair:
+//
+//     t.set_style(Light)      -- ┌───┬───┐
+//     t.set_dividers(true)    -- │ A │ B │
+//
+// The styles that are not box drawings ignore `dividers`, because for them the separator is not a
+// choice: Markdown's is `|`, tabbed output's is a tab, and a matrix has none.
+//
+// ## Rendering is a function of the table
+//
+// `render` and `text` take `self` and not `*self`, so a table may be rendered, added to, and rendered
+// again. Nothing is cached and no phantom row is appended to make the arithmetic line up: the widths
+// are measured for the rendering that asked for them and thrown away with it.
+
+// Where a cell's text sits in the field its column gives it.
+enum Align
+    Left
+    Right
+    Center
+end Align
+
+// What the table is made of.
+//
+// Six of these are grids differing only in which characters draw them, and they are one code path
+// reading one glyph table. The last four are different *shapes* rather than different characters, and
+// each is the form some other program wants to be handed: a Markdown file, a spreadsheet, a page of
+// mathematics.
+enum Style
+    // Columns separated by spaces, with no rules and no frame.
+    Plain
+    // `+---+`, for a terminal that cannot be trusted with anything else.
+    Ascii
+    // The light box drawings: `┌─┬┐ │ ├┼┤ └┴┘`.
+    Light
+    // Heavy outer, light inner: `┏━┯┓ ┃ ┣┿┫ ┗┷┛`. The frame is what the eye follows, so the frame is
+    // what gets the weight; a heavy divider between every column draws the grid instead of the data.
+    Heavy
+    // Double outer, light inner: `╔═╤╗ ║ ╠╪╣ ╚╧╝`.
+    Double
+    // Light with arcs at the corners: `╭─┬╮ │ ├┼┤ ╰┴╯`.
+    Rounded
+    // A Markdown table, whose separator row carries the column alignments as `----:`.
+    Markdown
+    // Fields separated by tabs, for something else to read.
+    Tabbed
+    // Bracketed as a matrix: `⎡ ⎤`.
+    Matrix
+    // Bracketed as a matrix with parentheses: `⎛ ⎞`.
+    MatrixRounded
+end Style
+
+// The twelve characters that draw one grid, and the reason the six grid styles are one code path.
+//
+// Nine of them are the junctions -- the three a top rule can reach, the three a middle rule can, and
+// the three a bottom rule can -- and the last three are the fill and the two verticals. Adding a
+// style is filling this in once; nothing else in the module knows one grid from another.
+//
+// **The outer and inner verticals are separate**, which is what lets a heavy or double frame hold
+// light dividers. That is a real distinction rather than a convenience: the frame says where the
+// table ends and the dividers say where a column does, and drawing both at the same weight makes the
+// second as loud as the first.
+struct Glyphs
+    tl: string
+    ttee: string
+    tr: string
+    ltee: string
+    cross: string
+    rtee: string
+    bl: string
+    btee: string
+    br: string
+    h: string
+    vout: string
+    vin: string
+end Glyphs
+
+glyphs_of(s: Style) -> Glyphs = s match
+    Ascii -> Glyphs("+", "+", "+", "+", "+", "+", "+", "+", "+", "-", "|", "|")
+    Heavy -> Glyphs("\u{250f}", "\u{252f}", "\u{2513}", "\u{2523}", "\u{253f}", "\u{252b}",
+                    "\u{2517}", "\u{2537}", "\u{251b}", "\u{2501}", "\u{2503}", "\u{2502}")
+    Double -> Glyphs("\u{2554}", "\u{2564}", "\u{2557}", "\u{2560}", "\u{256a}", "\u{2563}",
+                     "\u{255a}", "\u{2567}", "\u{255d}", "\u{2550}", "\u{2551}", "\u{2502}")
+    Rounded -> Glyphs("\u{256d}", "\u{252c}", "\u{256e}", "\u{251c}", "\u{253c}", "\u{2524}",
+                      "\u{2570}", "\u{2534}", "\u{256f}", "\u{2500}", "\u{2502}", "\u{2502}")
+    // A Markdown table is a grid whose every junction is the same character. Saying that here rather
+    // than as a test at each junction is what keeps `Markdown` out of the drawing code entirely --
+    // its one genuine difference, the alignment marks, is a rule of its own.
+    Markdown -> Glyphs("|", "|", "|", "|", "|", "|", "|", "|", "|", "-", "|", "|")
+    // Everything else draws in light lines where it draws at all. A `Plain` table has no frame, but
+    // it can still be given a divider or a rule, and the light glyphs are what those are made of.
+    else Glyphs("\u{250c}", "\u{252c}", "\u{2510}", "\u{251c}", "\u{253c}", "\u{2524}",
+                "\u{2514}", "\u{2534}", "\u{2518}", "\u{2500}", "\u{2502}", "\u{2502}")
+
+// Which of the three rules is being drawn -- what decides which junction each position takes.
+enum Rule
+    Top
+    Middle
+    Bottom
+end Rule
+
+// A style with an outer frame: something is drawn to the left of the first column and to the right of
+// the last, and a horizontal rule closes the table at both ends.
+bordered(s: Style) -> bool = s match
+    Ascii -> true
+    Light -> true
+    Heavy -> true
+    Double -> true
+    Rounded -> true
+    else false
+
+markdown(s: Style) -> bool = s match
+    Markdown -> true
+    else false
+
+tabbed(s: Style) -> bool = s match
+    Tabbed -> true
+    else false
+
+matrix(s: Style) -> bool = s match
+    Matrix -> true
+    MatrixRounded -> true
+    else false
+
+// The bracket a matrix row opens or closes with.
+//
+// A bracket is three characters tall whatever the matrix is, so a one-row matrix takes the middle one
+// on both sides rather than a top and a bottom: `⎢1 2 3⎥` is a row vector, and `⎡1 2 3⎦` is nothing.
+bracket(s: Style, r: usize, nrows: usize, left: bool) -> string
+    val round = s match
+        MatrixRounded -> true
+        else false
+
+    if nrows == 1usize || (r > 0usize && r + 1usize < nrows)
+        if round then (if left then "\u{239c}" else "\u{239f}")
+        else (if left then "\u{23a2}" else "\u{23a5}")
+    elif r == 0usize
+        if round then (if left then "\u{239b}" else "\u{239e}")
+        else (if left then "\u{23a1}" else "\u{23a4}")
+    else
+        if round then (if left then "\u{239d}" else "\u{23a0}")
+        else (if left then "\u{23a3}" else "\u{23a6}")
+end bracket
+
+// The three escapes a table emits, spelled once.
+//
+// `RESET` clears everything rather than the one thing it was asked to clear, which is what ANSI
+// gives; a cell that is both underlined and styled therefore has to re-open the underline after the
+// style ends, and `line` is where that is done.
+const BOLD: string = "\u{1b}[1m"
+const UNDERLINE: string = "\u{1b}[4m"
+const RESET: string = "\u{1b}[0m"
+
+// One rendered cell: what the value came to, how wide that is on screen, and the three things a
+// caller may say about this cell alone.
+//
+// The text and its width are both kept because both are wanted and one rendering produces them. A
+// table cannot lay out a column until it knows the widest cell in it, so it has to see every cell
+// before it writes the first -- and rendering each value a second time at that point would mean
+// holding the values instead, which is the same storage with a dispatch on the end of it.
+//
+// `align` is an `Option` because "this cell" and "this column" are two levels and a cell has to be
+// able to say nothing: `None` is not a third alignment, it is the absence of an override.
+struct Cell
+    text: &Buf[u8]
+    width: usize
+    align: Option[Align]
+    style: string
+    underlined: bool
+end Cell
+
+// Render a value once, keeping the bytes and measuring them.
+//
+// The parameter is a `&Display` rather than a `T: Display`, and that is what lets a row hold a
+// `string` beside an `int`: a bound is a promise about **one** type, and a row is a sequence of
+// different ones.
+//
+// The specifier is the neutral one on purpose. Its width counts bytes, so honouring it here would
+// pad `café` to five columns where four were asked for -- and by a different amount in every cell
+// that is not ASCII, which makes a column ragged rather than merely narrow. Padding is this module's
+// job because only this module knows where the next border falls.
+cell_of(v: &Display) -> Cell
+    var sink = byte_sink()
+    var out: *Writer = &sink
+
+    v.display(out, FormatSpec(0, -1, false))
+
+    Cell(sink.bytes, columns(sink.text()), None, "", false)
+end cell_of
+
+// A table of rendered cells, in row-major order.
+//
+// The cells are **one flat buffer** rather than a buffer of rows: a row is `ncols` consecutive
+// entries, so a column is a walk with a stride and neither shape needs a nested container.
+struct Table
+    style: Style
+    dividers: bool
+    ansi: bool
+    header_bold: bool
+    header_underlined: bool
+    header_centered: bool
+    header_line: bool
+    ncols: usize
+    aligns: &Buf[Align]
+    cells: &Buf[Cell]
+    // One per row: whether a rule is drawn above it. A separator asked for before any row exists, or
+    // after the last one, has no row to sit above and is dropped -- which is what makes `line` safe
+    // to call in a loop.
+    rules: &Buf[bool]
+    pending: bool
+
+    rows(self) -> usize = if self.ncols == 0usize then 0usize else self.cells.len() / self.ncols
+
+    is_empty(self) -> bool = self.cells.is_empty()
+
+    // -- Saying what the table is -------------------------------------------------------------
+
+    set_style(*self, s: Style) = self.style = s
+
+    // Whether the columns are separated from each other inside the frame. Ignored by the styles
+    // whose separator is not a choice.
+    set_dividers(*self, on: bool) = self.dividers = on
+
+    // Whether the escapes are emitted at all. A table written to a file wants them off.
+    set_ansi(*self, on: bool) = self.ansi = on
+
+    set_header_bold(*self, on: bool) = self.header_bold = on
+
+    set_header_underlined(*self, on: bool) = self.header_underlined = on
+
+    // Whether a header's cells are centred over their columns. Off means they are aligned like any
+    // other row.
+    set_header_centered(*self, on: bool) = self.header_centered = on
+
+    // Whether a rule is drawn between the header and the first row of data.
+    set_header_line(*self, on: bool) = self.header_line = on
+
+    // -- Filling it in ------------------------------------------------------------------------
+
+    // Add a row. The cells are rendered here rather than at layout, so a value handed to a table
+    // needs to outlive the call and nothing longer.
+    //
+    // The first row is what fixes the width of the table; every row after it is required to match.
+    add(*self, values: []const &Display)
+        require self.fits(values.len), "a row has one cell per column, and the first row sets how many"
+
+        if self.ncols == 0usize
+            self.ncols = values.len
+
+            var c = 0usize
+
+            while c < self.ncols
+                self.aligns.push(Left)
+                c += 1usize
+
+        for v in values do self.cells.push(cell_of(v))
+
+        self.rules.push(self.pending)
+        self.pending = false
+    end add
+
+    // Add the header row, which is the first row and carries the emphasis the others do not.
+    //
+    // Bold and underline are ANSI, so they are dropped for the styles whose output is read by
+    // something other than a terminal: a Markdown file showing an escape sequence is a Markdown file
+    // with an escape sequence in it.
+    header(*self, values: []const &Display)
+        require self.cells.is_empty(), "the header has to be the first row"
+
+        self.add(values)
+
+        val plain = !markdown(self.style) && !tabbed(self.style)
+        var c = 0usize
+
+        while c < self.ncols
+            // Written either way, and not only for the centred case: an alignment given to the
+            // header's cells is what keeps a column alignment set later from reaching up and moving
+            // the names as well as the numbers under them.
+            if self.header_centered then self.cell_align(c, Center) else self.cell_align(c, Left)
+
+            if self.header_bold && plain then self.cell_style(c, BOLD)
+
+            if self.header_underlined && plain then self.underline(c)
+
+            c += 1usize
+
+        // A Markdown table's separator row is not optional -- it is what makes the row above it a
+        // header rather than data.
+        if self.header_line || markdown(self.style) then self.line()
+    end header
+
+    // Draw a rule above the next row added. One asked for after the last row is dropped.
+    line(*self) = self.pending = true
+
+    // -- Saying how it is laid out ------------------------------------------------------------
+
+    // How a whole column is aligned, for every row that does not say otherwise.
+    set_column_align(*self, col: usize, a: Align)
+        require col < self.ncols, "column out of range"
+
+        self.aligns.set(col, a)
+    end set_column_align
+
+    // Numbers read as numbers when their digits line up, which is the one alignment a table is
+    // usually asked for by name.
+    right_align(*self, col: usize) = self.set_column_align(col, Right)
+
+    // How **this cell** is aligned, whatever its column says. Applies to the row most recently
+    // added, which is the row a caller has just written and still has in front of them.
+    cell_align(*self, col: usize, a: Align)
+        val i = self.last(col)
+        val c = self.cells.at(i)
+
+        self.cells.set(i, Cell(c.text, c.width, Some(a), c.style, c.underlined))
+    end cell_align
+
+    // Add an escape sequence to this cell, in the row most recently added. Sequences accumulate, so
+    // a cell may be given a colour and a weight by two calls.
+    cell_style(*self, col: usize, esc: string)
+        val i = self.last(col)
+        val c = self.cells.at(i)
+
+        self.cells.set(i, Cell(c.text, c.width, c.align, c.style + esc, c.underlined))
+    end cell_style
+
+    // Underline this cell, in the row most recently added. It is not `cell_style` with an underline
+    // escape because the underline covers the cell's padding as well as its text, so that a column of
+    // underlined headers is one continuous line.
+    underline(*self, col: usize)
+        val i = self.last(col)
+        val c = self.cells.at(i)
+
+        self.cells.set(i, Cell(c.text, c.width, c.align, c.style, true))
+    end underline
+
+    // Whether a row of `n` cells belongs to this table. A contract clause is checked where the call
+    // arrives and has to be one expression written before anything else in the body, so the two
+    // cases -- the first row, which settles the width, and every row after it, which is held to it --
+    // are asked here as one question.
+    private fits(self, n: usize) -> bool =
+        if self.ncols == 0usize then n > 0usize else n == self.ncols
+
+    // The index of a cell in the row most recently added.
+    private last(self, col: usize) -> usize
+        require !self.cells.is_empty(), "there is no row to change"
+        require col < self.ncols, "column out of range"
+
+        self.cells.len() - self.ncols + col
+    end last
+
+    // -- Rendering ----------------------------------------------------------------------------
+
+    // The width of each column: its widest cell, the header included.
+    private widths(self) -> &Buf[usize]
+        var w: &Buf[usize] = buf()
+        var c = 0usize
+
+        while c < self.ncols
+            var m = 0usize
+            var i = c
+
+            while i < self.cells.len()
+                val cw = self.cells.at(i).width
+
+                if cw > m then m = cw
+
+                i += self.ncols
+
+            w.push(m)
+            c += 1usize
+
+        w
+    end widths
+
+    // One horizontal rule. The junctions differ at the top, the middle and the bottom, and nothing
+    // else about the three does.
+    private rule(self, w: &Buf[usize], kind: Rule, out: *Writer)
+        val g = glyphs_of(self.style)
+        val left = kind match
+            Top -> g.tl
+            Middle -> g.ltee
+            Bottom -> g.bl
+        val junction = kind match
+            Top -> g.ttee
+            Middle -> g.cross
+            Bottom -> g.btee
+        val right = kind match
+            Top -> g.tr
+            Middle -> g.rtee
+            Bottom -> g.br
+        var c = 0usize
+
+        if bordered(self.style) then out.write(left.bytes)
+
+        while c < self.ncols
+            if c > 0usize && self.dividers then out.write(junction.bytes)
+
+            fill(out, g.h, w.at(c) + 2usize)
+
+            c += 1usize
+
+        if bordered(self.style) then out.write(right.bytes)
+
+        out.write("\n".bytes)
+    end rule
+
+    // Markdown's separator row, which is also where a Markdown table states its alignments: a colon
+    // at the end of the dashes means the column is right-aligned. There is no left-aligned spelling
+    // because left is what a reader gets without one.
+    private md_rule(self, w: &Buf[usize], out: *Writer)
+        var c = 0usize
+
+        out.write("|".bytes)
+
+        while c < self.ncols
+            out.write(" ".bytes)
+
+            self.aligns.at(c) match
+                Right ->
+                    fill(out, "-", if w.at(c) > 1usize then w.at(c) - 1usize else 1usize)
+                    out.write(":".bytes)
+                else fill(out, "-", w.at(c))
+
+            out.write(" |".bytes)
+
+            c += 1usize
+
+        out.write("\n".bytes)
+    end md_rule
+
+    // One row of cells.
+    private line_of(self, r: usize, w: &Buf[usize], nrows: usize, out: *Writer)
+        val g = glyphs_of(self.style)
+        val md = markdown(self.style)
+        val mx = matrix(self.style)
+        var c = 0usize
+
+        while c < self.ncols
+            val cell = self.cells.at(r * self.ncols + c)
+            val slack = w.at(c) - cell.width
+            val a = cell.align match
+                Some(x) -> x
+                None -> self.aligns.at(c)
+            val pre = a match
+                Left -> 0usize
+                Right -> slack
+                Center -> slack / 2usize
+            val post = slack - pre
+            val last = c + 1usize == self.ncols
+            // `dividers` is a question only for the styles that draw a grid. For the other three the
+            // separator is not a choice a caller has: Markdown's is a bar, tabbed output's is a tab,
+            // and a matrix has none -- so a table asked for both gets the one its style means.
+            val divided = md || (self.dividers && !mx && !tabbed(self.style))
+            val styled = self.ansi && cell.style.len > 0
+            val under = self.ansi && cell.underlined
+            // A borderless table's last column stops at its text: the trailing spaces would be
+            // invisible everywhere except in a diff. An underlined cell keeps them, because there
+            // the padding is the line.
+            val pad_end = !last || bordered(self.style) || md || under
+
+            if c == 0usize
+                if mx then out.write(bracket(self.style, r, nrows, true).bytes)
+                elif bordered(self.style) || md then out.write(g.vout.bytes)
+            elif divided then out.write(g.vin.bytes)
+            elif tabbed(self.style) then out.write("\t".bytes)
+
+            // A matrix's bracket sits against its first column; everything else gets a space inside
+            // the border.
+            if !mx || c > 0usize then out.write(" ".bytes)
+
+            // Whether an escape is in effect, so that exactly one closes it. ANSI has no way to end
+            // a single attribute -- `RESET` ends them all -- so a cell that is underlined *and*
+            // styled has to re-open the underline after the style's reset, and only where there is
+            // padding left for it to cover.
+            var open = false
+
+            if under
+                out.write(UNDERLINE.bytes)
+                open = true
+
+            fill(out, " ", pre)
+
+            if styled
+                out.write(cell.style.bytes)
+                open = true
+
+            out.write(cell.text.view())
+
+            if styled
+                out.write(RESET.bytes)
+                open = false
+
+                if under && pad_end && post > 0usize
+                    out.write(UNDERLINE.bytes)
+                    open = true
+
+            if pad_end then fill(out, " ", post)
+
+            if open then out.write(RESET.bytes)
+
+            if pad_end then out.write(" ".bytes)
+
+            c += 1usize
+
+        if mx then out.write(bracket(self.style, r, nrows, false).bytes)
+        elif bordered(self.style) || md then out.write(g.vout.bytes)
+
+        out.write("\n".bytes)
+    end line_of
+
+    // Write the table.
+    //
+    // This takes `self`, so rendering measures the table it was given and changes nothing: render,
+    // add a row, render again, and the second answer is the table as it then stands.
+    render(self, out: *Writer)
+        require !self.cells.is_empty(), "an empty table has nothing to render"
+
+        val w = self.widths()
+        val nrows = self.rows()
+        val grid = bordered(self.style)
+        val md = markdown(self.style)
+        var r = 0usize
+
+        if grid then self.rule(w, Top, out)
+
+        while r < nrows
+            if self.rules.at(r)
+                if md then self.md_rule(w, out)
+                elif grid then self.rule(w, Middle, out)
+
+            self.line_of(r, w, nrows, out)
+
+            r += 1usize
+
+        if grid then self.rule(w, Bottom, out)
+    end render
+
+    // The table as a `string`, for a caller who wants it in hand rather than written out.
+    //
+    // `render` is the one that costs nothing: it writes through the sink it is given, so a table
+    // going to the terminal never becomes a string at all.
+    text(self) -> string
+        var sink = byte_sink()
+        var out: *Writer = &sink
+
+        self.render(out)
+
+        from_utf8(sink.text()).expect("a table is built out of well-formed text")
+    end text
+end Table
+
+// An empty table: plain, no dividers, escapes on, and a header that is centred, bold and underlined.
+//
+// The width is not given here because the first row settles it, and the first row is written a line
+// or two later. Saying it twice is one more thing that can disagree.
+table() -> Table
+    Table(Plain, false, true, true, true, true, false, 0usize, buf(), buf(), buf(), false)
+end table
+
+// One string, `n` times.
+private fill(out: *Writer, s: string, n: usize)
+    var i = 0usize
+
+    while i < n
+        out.write(s.bytes)
+        i += 1usize
+end fill

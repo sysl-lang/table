@@ -1,0 +1,558 @@
+module sh.sysl.table
+
+import sysl.buf.byte_sink
+import sysl.text.from_utf8
+
+// What this package claims, run by `sysl test .`.
+//
+// **Every expected string here is written out in full, and that is the point of the file.** A table
+// is one of the few things whose whole contract is its exact output: a column that is one space wide
+// where it should be two is not a degraded table, it is a wrong one, and an assertion that merely
+// counted the lines or looked for a substring would pass against it. So each case below is the bytes
+// a caller gets, spaces and all.
+//
+// Most of them came from the Scala library this was ported from, whose own tests were 445 lines of
+// exact expected output. Holding those byte for byte is what says the port is a port rather than
+// something new that also draws tables. The three places where the answer here is deliberately
+// **not** the answer there are marked where they occur.
+
+// Compare, and say what the difference was.
+//
+// `assert` takes the file and line of its caller through defaults, so they are forwarded rather than
+// filled in here -- otherwise every failure in this file would report this line.
+private same(got: string, want: string, what: string, file: string = __FILE__, line: long = __LINE__)
+    if got != want
+        print("\n")
+        print(what)
+        print("\nwanted:\n")
+        print(want)
+        print("got:\n")
+        print(got)
+
+    assert(got == want, what, file, line)
+end same
+
+// A table with the header emphasis off, which is what most of the cases below want: the emphasis is
+// ANSI, and ANSI in an expected string makes the string about the escapes rather than the layout.
+private plain_table() -> Table
+    var t = table()
+
+    t.set_header_bold(false)
+    t.set_header_underlined(false)
+
+    t
+end plain_table
+
+// -- No border ------------------------------------------------------------------------------------
+
+@test
+renders_a_simple_table() =
+    var t = plain_table()
+
+    t.header(["A", "B", "C"])
+    t.add([1, 2, 3])
+
+    same(t.text(), " A  B  C\n 1  2  3\n", "a plain table is columns of text and nothing else")
+
+@test
+renders_multiple_rows_with_varying_widths() =
+    var t = plain_table()
+
+    t.header(["Name", "Value"])
+    t.add(["x", 1])
+    t.add(["longer", 1000])
+
+    same(t.text(), "  Name   Value\n x       1\n longer  1000\n", "every column is as wide as its widest cell")
+
+@test
+right_aligns_a_column() =
+    var t = plain_table()
+
+    t.header(["Item", "Count"])
+    t.add(["apples", 5])
+    t.add(["oranges", 123])
+    t.right_align(1usize)
+
+    same(t.text(), "  Item    Count\n apples       5\n oranges    123\n", "numbers line up on the right")
+
+// The header keeps its own alignment when a column is given one, which is what a per-cell override is
+// for: the names are being centred over the columns, not laid out with them.
+@test
+centers_columns_and_leaves_the_header_where_it_was() =
+    var t = plain_table()
+
+    t.set_header_centered(false)
+    t.header(["A", "B"])
+    t.add(["x", "y"])
+    t.add(["xxx", "yyy"])
+    t.set_column_align(0usize, Center)
+    t.set_column_align(1usize, Center)
+
+    same(t.text(), " A    B\n  x    y\n xxx  yyy\n", "a column alignment reaches the data and not the header")
+
+@test
+a_cell_alignment_overrides_its_column() =
+    var t = plain_table()
+
+    t.set_header_centered(false)
+    t.header(["A", "B", "C"])
+    t.add(["left", "center", "right"])
+    t.cell_align(0usize, Left)
+    t.cell_align(1usize, Center)
+    t.cell_align(2usize, Right)
+    t.add(["x", "x", "x"])
+
+    same(t.text(), " A     B       C\n left  center  right\n x     x       x\n", "the override reaches one row")
+
+// An odd amount of slack cannot be split evenly, and something has to say which side gets the extra
+// space. It goes on the right, so a column of centred cells whose widths differ by one stays put
+// instead of jittering from row to row.
+@test
+odd_slack_leaves_the_extra_space_on_the_right() =
+    var t = plain_table()
+
+    t.set_header_centered(false)
+    t.header(["ab", "x"])
+    t.add(["abcd", "y"])
+    t.set_column_align(0usize, Center)
+
+    same(t.text(), " ab    x\n abcd  y\n", "one space before, two after")
+
+@test
+renders_a_header_with_no_rows_under_it() =
+    var t = plain_table()
+
+    t.set_style(Ascii)
+    t.set_dividers(true)
+    t.set_header_line(true)
+    t.header(["A", "B"])
+
+    same(t.text(), "+---+---+\n| A | B |\n+---+---+\n", "the rule under a header needs a row to be under")
+
+// -- Markdown -------------------------------------------------------------------------------------
+
+@test
+renders_a_markdown_table() =
+    var t = table()
+
+    t.set_style(Markdown)
+    t.header(["Name", "Age"])
+    t.add(["Alice", 30])
+    t.add(["Bob", 25])
+
+    same(t.text(), "| Name  | Age |\n| ----- | --- |\n| Alice | 30  |\n| Bob   | 25  |\n", "a markdown table")
+
+// Markdown states its alignments in the separator row rather than in the cells, so this is the one
+// style where an alignment changes a *rule* and not a field.
+@test
+markdown_states_a_right_alignment_with_a_colon() =
+    var t = table()
+
+    t.set_style(Markdown)
+    t.header(["Item", "Price"])
+    t.add(["Widget", 9.99])
+    t.add(["Gadget", 24.99])
+    t.right_align(1usize)
+
+    same(t.text(), "|  Item  | Price |\n| ------ | ----: |\n| Widget |  9.99 |\n| Gadget | 24.99 |\n", "the colon marks the alignment")
+
+// The narrow case, where the dashes and the colon are competing for the same column: a marked column
+// keeps at least one dash, so the mark never becomes the whole of the rule.
+@test
+a_narrow_markdown_column_keeps_a_dash_beside_its_colon() =
+    var t = table()
+
+    t.set_style(Markdown)
+    t.header(["a"])
+    t.add([1])
+    t.right_align(0usize)
+
+    same(t.text(), "| a |\n| -: |\n| 1 |\n", "one dash and the mark")
+
+// -- Grids ----------------------------------------------------------------------------------------
+
+@test
+renders_an_ascii_grid() =
+    var t = plain_table()
+
+    t.set_style(Ascii)
+    t.set_dividers(true)
+    t.set_header_line(true)
+    t.header(["A", "B"])
+    t.add([1, 2])
+
+    same(t.text(), "+---+---+\n| A | B |\n+---+---+\n| 1 | 2 |\n+---+---+\n", "plus, minus and bar")
+
+@test
+an_ascii_grid_widens_with_its_columns() =
+    var t = plain_table()
+
+    t.set_style(Ascii)
+    t.set_dividers(true)
+    t.set_header_line(true)
+    t.header(["Name", "Value"])
+    t.add(["test", 12345])
+
+    same(t.text(), "+------+-------+\n| Name | Value |\n+------+-------+\n| test | 12345 |\n+------+-------+\n", "the rules follow the widths")
+
+// A frame without dividers is one column as far as the rules are concerned, which is what makes the
+// rule a single unbroken run.
+@test
+renders_a_frame_without_dividers() =
+    var t = plain_table()
+
+    t.set_style(Light)
+    t.set_header_line(true)
+    t.header(["A", "B", "C"])
+    t.add([1, 2, 3])
+    t.add([4, 5, 6])
+
+    same(t.text(), "\u{250c}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2510}\n\u{2502} A  B  C \u{2502}\n\u{251c}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2524}\n\u{2502} 1  2  3 \u{2502}\n\u{2502} 4  5  6 \u{2502}\n\u{2514}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2518}\n", "an outer frame only")
+
+@test
+renders_a_light_grid() =
+    var t = plain_table()
+
+    t.set_style(Light)
+    t.set_dividers(true)
+    t.set_header_line(true)
+    t.header(["A", "B"])
+    t.add([1, 2])
+
+    same(t.text(), "\u{250c}\u{2500}\u{2500}\u{2500}\u{252c}\u{2500}\u{2500}\u{2500}\u{2510}\n\u{2502} A \u{2502} B \u{2502}\n\u{251c}\u{2500}\u{2500}\u{2500}\u{253c}\u{2500}\u{2500}\u{2500}\u{2524}\n\u{2502} 1 \u{2502} 2 \u{2502}\n\u{2514}\u{2500}\u{2500}\u{2500}\u{2534}\u{2500}\u{2500}\u{2500}\u{2518}\n", "light box drawings")
+
+// The frame is heavy and the dividers inside it are not, which is the whole reason a glyph table
+// carries two verticals.
+@test
+renders_a_heavy_frame_with_light_dividers() =
+    var t = plain_table()
+
+    t.set_style(Heavy)
+    t.set_dividers(true)
+    t.set_header_line(true)
+    t.header(["A", "B"])
+    t.add([1, 2])
+
+    same(t.text(), "\u{250f}\u{2501}\u{2501}\u{2501}\u{252f}\u{2501}\u{2501}\u{2501}\u{2513}\n\u{2503} A \u{2502} B \u{2503}\n\u{2523}\u{2501}\u{2501}\u{2501}\u{253f}\u{2501}\u{2501}\u{2501}\u{252b}\n\u{2503} 1 \u{2502} 2 \u{2503}\n\u{2517}\u{2501}\u{2501}\u{2501}\u{2537}\u{2501}\u{2501}\u{2501}\u{251b}\n", "heavy outside, light inside")
+
+// **A deliberate difference from the library this came from**, where `DOUBLE` was a name in an
+// enumeration and nothing else: every branch tested for light and fell through to heavy, so a double
+// border silently drew a heavy one and the tests asserted that it did. Here it draws double.
+@test
+renders_a_double_frame_with_light_dividers() =
+    var t = plain_table()
+
+    t.set_style(Double)
+    t.set_dividers(true)
+    t.set_header_line(true)
+    t.header(["A", "B"])
+    t.add([1, 2])
+
+    same(t.text(), "\u{2554}\u{2550}\u{2550}\u{2550}\u{2564}\u{2550}\u{2550}\u{2550}\u{2557}\n\u{2551} A \u{2502} B \u{2551}\n\u{2560}\u{2550}\u{2550}\u{2550}\u{256a}\u{2550}\u{2550}\u{2550}\u{2563}\n\u{2551} 1 \u{2502} 2 \u{2551}\n\u{255a}\u{2550}\u{2550}\u{2550}\u{2567}\u{2550}\u{2550}\u{2550}\u{255d}\n", "a double frame is double")
+
+// **The second deliberate difference**: the four arc glyphs were declared in the original and never
+// referenced, with three comments marking where they would have gone. A corner is the only thing that
+// differs, so it is a style rather than a flag.
+@test
+renders_a_rounded_grid() =
+    var t = plain_table()
+
+    t.set_style(Rounded)
+    t.set_dividers(true)
+    t.set_header_line(true)
+    t.header(["A", "B"])
+    t.add([1, 2])
+
+    same(t.text(), "\u{256d}\u{2500}\u{2500}\u{2500}\u{252c}\u{2500}\u{2500}\u{2500}\u{256e}\n\u{2502} A \u{2502} B \u{2502}\n\u{251c}\u{2500}\u{2500}\u{2500}\u{253c}\u{2500}\u{2500}\u{2500}\u{2524}\n\u{2502} 1 \u{2502} 2 \u{2502}\n\u{2570}\u{2500}\u{2500}\u{2500}\u{2534}\u{2500}\u{2500}\u{2500}\u{256f}\n", "only the corners differ")
+
+@test
+renders_a_grid_with_no_header() =
+    var t = table()
+
+    t.set_style(Ascii)
+    t.set_dividers(true)
+    t.add(["Alice", 30, "New York"])
+    t.add(["Bob", 25, "London"])
+
+    same(t.text(), "+-------+----+----------+\n| Alice | 30 | New York |\n| Bob   | 25 | London   |\n+-------+----+----------+\n", "a table is rows; a header is one of them")
+
+@test
+draws_a_rule_where_it_was_asked_for() =
+    var t = plain_table()
+
+    t.set_style(Ascii)
+    t.set_dividers(true)
+    t.header(["X"])
+    t.line()
+    t.add([1])
+    t.line()
+    t.add([2])
+
+    same(t.text(), "+---+\n| X |\n+---+\n| 1 |\n+---+\n| 2 |\n+---+\n", "a separator sits above the row that follows it")
+
+// A separator asked for when there is no row above it to separate from, or none below it to sit
+// above, has nothing to draw. That is what makes `line` safe inside a loop over rows.
+@test
+a_rule_with_no_row_under_it_is_dropped() =
+    var t = plain_table()
+
+    t.set_style(Ascii)
+    t.set_dividers(true)
+    t.add([1])
+    t.line()
+
+    same(t.text(), "+---+\n| 1 |\n+---+\n", "a trailing separator draws nothing")
+
+@test
+renders_dividers_without_a_border() =
+    var t = plain_table()
+
+    t.set_dividers(true)
+    t.header(["A", "B"])
+    t.add([1, 2])
+
+    same(t.text(), " A \u{2502} B\n 1 \u{2502} 2\n", "columns separated, nothing framed")
+
+// -- Matrices -------------------------------------------------------------------------------------
+
+@test
+renders_a_matrix_in_square_brackets() =
+    var t = table()
+
+    t.set_style(Matrix)
+    t.add([1, 2, 3])
+    t.add([4, 5, 6])
+    t.add([7, 8, 9])
+
+    same(t.text(), "\u{23a1}1  2  3\u{23a4}\n\u{23a2}4  5  6\u{23a5}\n\u{23a3}7  8  9\u{23a6}\n", "a bracket is three characters tall")
+
+@test
+renders_a_matrix_in_parentheses() =
+    var t = table()
+
+    t.set_style(MatrixRounded)
+    t.add([1, 2, 3])
+    t.add([4, 5, 6])
+    t.add([7, 8, 9])
+
+    same(t.text(), "\u{239b}1  2  3\u{239e}\n\u{239c}4  5  6\u{239f}\n\u{239d}7  8  9\u{23a0}\n", "the same shape in parentheses")
+
+// One row is the case a top and a bottom cannot express: the extension is the only piece that stands
+// alone.
+@test
+a_one_row_matrix_takes_the_extension_bracket() =
+    var t = table()
+
+    t.set_style(Matrix)
+    t.add([1, 2, 3])
+
+    same(t.text(), "\u{23a2}1  2  3\u{23a5}\n", "a row vector is bracketed by extensions")
+
+@test
+a_one_row_matrix_in_parentheses_takes_the_extension_bracket() =
+    var t = table()
+
+    t.set_style(MatrixRounded)
+    t.add([1, 2, 3])
+
+    same(t.text(), "\u{239c}1  2  3\u{239f}\n", "and the same in parentheses")
+
+// A matrix of four rows is where the extension has to repeat: the top and the bottom are one row
+// each and everything between them is the middle piece, however many rows that is.
+@test
+a_tall_matrix_repeats_its_middle_bracket() =
+    var t = table()
+
+    t.set_style(Matrix)
+    t.add([1])
+    t.add([2])
+    t.add([3])
+    t.add([4])
+
+    same(t.text(), "\u{23a1}1\u{23a4}\n\u{23a2}2\u{23a5}\n\u{23a2}3\u{23a5}\n\u{23a3}4\u{23a6}\n", "two middles, one top, one bottom")
+
+// -- Tabs -----------------------------------------------------------------------------------------
+
+@test
+separates_fields_with_tabs() =
+    var t = plain_table()
+
+    t.set_style(Tabbed)
+    t.header(["A", "B", "C"])
+    t.add([1, 2, 3])
+
+    same(t.text(), " A \t B \t C\n 1 \t 2 \t 3\n", "tab-separated, for something else to read")
+
+// -- What a cell may be ---------------------------------------------------------------------------
+
+// A row is `[]const &Display`, so its cells are boxed and erased at the element and nothing has to
+// agree with anything else. This is the whole reason the API takes values rather than strings.
+@test
+a_row_holds_unrelated_types() =
+    var t = plain_table()
+
+    t.header(["text", "count", "big", "flag"])
+    t.add(["totals", 7, 340282366920938463463374607431768211455u128, true])
+
+    same(t.text(), "  text   count                    big                    flag\n totals  7      340282366920938463463374607431768211455  true\n", "a string, an int, a u128 and a bool in one row")
+
+// **The third deliberate difference from the original**, and this one is a deletion. There, the
+// stringifier tested each value for being an array or a sequence and joined it by hand, because
+// everything arrived as `Any` and `String.valueOf` would have printed a reference. Here a slice
+// renders itself, so a collection is a cell like any other and the special case does not exist.
+@test
+a_collection_is_a_cell_like_any_other() =
+    var t = plain_table()
+    val xs = [1, 2, 3]
+
+    t.header(["Data"])
+    t.add([xs[..]])
+
+    same(t.text(), "   Data\n [1, 2, 3]\n", "a slice renders as a slice")
+
+// `dividers` is a question the grid styles answer and the other three do not. A table asked for both
+// gets the separator its style means, rather than a divider drawn over a tab.
+@test
+tabs_are_not_replaced_by_dividers() =
+    var t = plain_table()
+
+    t.set_style(Tabbed)
+    t.set_dividers(true)
+    t.header(["A", "B"])
+    t.add([1, 2])
+
+    same(t.text(), " A \t B\n 1 \t 2\n", "a tabbed table is tab-separated whatever else was asked for")
+
+@test
+a_matrix_has_no_dividers_to_turn_on() =
+    var t = table()
+
+    t.set_style(Matrix)
+    t.set_dividers(true)
+    t.add([1, 2])
+    t.add([3, 4])
+
+    same(t.text(), "\u{23a1}1  2\u{23a4}\n\u{23a3}3  4\u{23a6}\n", "the columns of a matrix are separated by space")
+
+// -- Width is columns, not bytes and not characters ------------------------------------------------
+
+// The defect this port exists to fix. `日本` is six bytes, two characters and four columns; a table
+// measuring either of the first two draws a rule that does not reach its own corner.
+@test
+lays_out_wide_characters_by_the_columns_they_occupy() =
+    var t = plain_table()
+
+    t.set_style(Light)
+    t.set_dividers(true)
+    t.set_header_centered(false)
+    t.header(["\u{65e5}\u{672c}", "ab"])
+    t.add(["a", "\u{6708}"])
+
+    same(t.text(), "\u{250c}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{252c}\u{2500}\u{2500}\u{2500}\u{2500}\u{2510}\n\u{2502} \u{65e5}\u{672c} \u{2502} ab \u{2502}\n\u{2502} a    \u{2502} \u{6708} \u{2502}\n\u{2514}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2534}\u{2500}\u{2500}\u{2500}\u{2500}\u{2518}\n", "two characters, four columns")
+
+// A combining mark occupies no column of its own, so a decomposed `café` is five characters and four
+// columns -- and the byte count is six.
+@test
+a_combining_mark_takes_no_column() =
+    var t = plain_table()
+
+    t.set_style(Ascii)
+    t.set_dividers(true)
+    t.set_header_centered(false)
+    t.header(["x"])
+    t.add(["cafe\u{301}"])
+
+    same(t.text(), "+------+\n| x    |\n| cafe\u{301} |\n+------+\n", "the mark rides on the letter before it")
+
+// -- Rendering changes nothing ---------------------------------------------------------------------
+
+// The other defect the port fixes: rendering used to append a phantom row and cache the widths for
+// good, so a table rendered, added to, and rendered again gave an answer that was quietly wrong.
+// `render` takes `self`, which is what makes that unwritable rather than merely fixed.
+@test
+rendering_leaves_the_table_alone() =
+    var t = plain_table()
+
+    t.header(["A"])
+    t.add([1])
+
+    val first = t.text()
+
+    t.add([1000])
+
+    val second = t.text()
+
+    same(first, " A\n 1\n", "the first rendering")
+    same(second, "  A\n 1\n 1000\n", "and the second, measured again")
+    same(t.text(), second, "and again, unchanged")
+
+// -- The escapes -----------------------------------------------------------------------------------
+
+@test
+emphasises_a_header_with_ansi() =
+    var t = table()
+
+    t.set_header_underlined(false)
+    t.header(["Test"])
+    t.add(["data"])
+
+    same(t.text(), " \u{1b}[1mTest\u{1b}[0m\n data\n", "bold, and closed once")
+
+// The underline covers the padding as well as the text, which is what makes a row of headers one
+// continuous line rather than a line per word.
+@test
+underlines_a_header_across_its_padding() =
+    var t = table()
+
+    t.set_header_bold(false)
+    t.header(["Test"])
+    t.add(["data"])
+
+    same(t.text(), " \u{1b}[4mTest\u{1b}[0m \n data\n", "underlined, padding included")
+
+// `RESET` ends every attribute rather than the one it was asked to end, so the two together are the
+// case that has to re-open what it did not mean to close.
+@test
+combines_bold_with_an_underline() =
+    var t = table()
+
+    t.header(["Test"])
+    t.add(["data"])
+
+    same(t.text(), " \u{1b}[4m\u{1b}[1mTest\u{1b}[0m \n data\n", "one reset closes both")
+
+@test
+emits_no_escapes_when_they_are_turned_off() =
+    var t = table()
+
+    t.set_ansi(false)
+    t.header(["Test"])
+    t.add(["data"])
+
+    same(t.text(), " Test\n data\n", "a table written to a file wants none of it")
+
+@test
+styles_one_cell() =
+    var t = plain_table()
+
+    t.header(["A"])
+    t.add(["styled"])
+    t.cell_style(0usize, "\u{1b}[31m")
+
+    same(t.text(), "   A\n \u{1b}[31mstyled\u{1b}[0m\n", "the escape wraps the text and closes after it")
+
+// -- Writing through a sink -------------------------------------------------------------------------
+
+// `text` is the convenience; `render` is the one that costs nothing, because the bytes go straight
+// through the sink they were headed for instead of becoming a string on the way.
+@test
+renders_through_a_writer() =
+    var t = plain_table()
+    var sink = byte_sink()
+    var out: *Writer = &sink
+
+    t.header(["A"])
+    t.add([1])
+    t.render(out)
+
+    same(from_utf8(sink.text()).expect("a table is text"), " A\n 1\n", "the same bytes, without the string")

@@ -1,0 +1,40 @@
+// Tables of text, laid out so the columns line up -- a package, in the sense `design/packages.md`
+// gives the word.
+//
+// There is no `dependencies` block because this depends on nothing sysl could fetch: it is one file
+// of sysl over the standard module's buffers and its Unicode width data, and the standard module is
+// not a package.
+//
+// This is the block a *consumer* writes to reach this package, and resolution for it is built
+// (`packages.md` §§ 3-6): a `sysl build` fetches the coordinate, selects by MVS, checks what arrived
+// against `sysl.sum`, and compiles it as more modules.
+//
+//     dependencies {
+//       table { git = "github.com/sysl-lang/table", version = "0.1.0" }
+//     }
+//
+// The coordinate is identity rather than a URL, so it carries no `https://`, and the version is the
+// tag `v0.1.0` on this repository. The coordinate names the *package*, `table`, while the module a
+// program imports is `sh.sysl.table`; `packages.md § 9` keeps those two deliberately apart.
+
+package {
+  name    = "table"
+  version = "0.1.0"
+}
+
+// **`alloc`, because a table is a growable thing and cannot be anything else.** How many rows there
+// will be is the caller's business and usually not known until the last one has been added, and each
+// cell holds the bytes its value rendered to -- so the storage is a `Buf` of cells and a `Buf` of
+// bytes per cell, both of which are the heap.
+//
+// This is the difference between this package and `harness`, which is also pure sysl and declares
+// nothing: a framework for testing on a board may not ask the board for an allocator, so its state is
+// a fixed number of bytes laid into the image. A table's is not fixed, so it asks.
+//
+// **What is NOT here is `os` or `posix`.** Nothing in this package opens, reads or writes anything:
+// `render` takes the sink it is to write through, and where that sink goes is the caller's decision.
+// A table therefore renders on a target with no operating system, provided the target has somewhere
+// to put the bytes.
+requires {
+  alloc = true
+}
