@@ -155,6 +155,46 @@ renders_the_table_the_readme_shows() =
 
     same(t.text(), " language  released  typed\n sysl      2026      true\n C         1972      true\n Python    1991      false\n", "the first example on the page")
 
+// A rule does not need a frame. This is the commonest shape a plain table has — names, one line,
+// data — and it was silently dropped in the first cut, which tied every rule to having a border.
+@test
+draws_a_rule_under_a_plain_header() =
+    var t = plain_table()
+
+    t.set_header_line(true)
+    t.set_header_centered(false)
+    t.header(["a", "bb"])
+    t.add([1, 2])
+
+    same(t.text(), " a  bb\n\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\n 1  2\n", "one line under the names")
+
+// The rule is exactly as wide as the row it sits under. The library this was ported from ran one
+// character past the end, because it appended a trailing space for the last column that an unframed
+// row does not have.
+@test
+a_plain_rule_stops_where_its_row_does() =
+    var t = plain_table()
+
+    t.set_header_centered(false)
+    t.header(["aaa"])
+    t.add([1])
+    t.line()
+    t.add([2])
+
+    same(t.text(), " aaa\n 1\n\u{2500}\u{2500}\u{2500}\u{2500}\n 2\n", "four columns of rule under a four-column row")
+
+// Neither of the two styles whose rows are not laid out in columns has anywhere to put a rule.
+@test
+a_rule_is_dropped_where_there_is_nothing_to_rule_off() =
+    var t = plain_table()
+
+    t.set_style(Tabbed)
+    t.set_header_line(true)
+    t.header(["a", "b"])
+    t.add([1, 2])
+
+    same(t.text(), " a \t b\n 1 \t 2\n", "tab-separated output has no rule")
+
 // -- Markdown -------------------------------------------------------------------------------------
 
 @test

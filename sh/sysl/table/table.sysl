@@ -1,6 +1,7 @@
 module sh.sysl.table
 
 import sysl.buf.{Buf, buf, byte_sink}
+import sysl.term.{bold, underline, reset}
 import sysl.text.{columns, from_utf8}
 
 // Tables of text, laid out so the columns line up.
@@ -166,14 +167,6 @@ bracket(s: Style, r: usize, nrows: usize, left: bool) -> string
         else (if left then "\u{23a3}" else "\u{23a6}")
 end bracket
 
-// The three escapes a table emits, spelled once.
-//
-// `RESET` clears everything rather than the one thing it was asked to clear, which is what ANSI
-// gives; a cell that is both underlined and styled therefore has to re-open the underline after the
-// style ends, and `line` is where that is done.
-const BOLD: string = "\u{1b}[1m"
-const UNDERLINE: string = "\u{1b}[4m"
-const RESET: string = "\u{1b}[0m"
 
 // One rendered cell: what the value came to, how wide that is on screen, and the three things a
 // caller may say about this cell alone.
@@ -302,7 +295,7 @@ struct Table
             // the names as well as the numbers under them.
             if self.header_centered then self.cell_align(c, Center) else self.cell_align(c, Left)
 
-            if self.header_bold && plain then self.cell_style(c, BOLD)
+            if self.header_bold && plain then self.cell_style(c, bold)
 
             if self.header_underlined && plain then self.underline(c)
 
@@ -417,7 +410,14 @@ struct Table
         while c < self.ncols
             if c > 0usize && self.dividers then out.write(junction.bytes)
 
-            fill(out, g.h, w.at(c) + 2usize)
+            // A cell is a space, its field, and a space -- except the last one of an unframed row,
+            // which stops at its text because trailing spaces are invisible everywhere but in a
+            // diff. The rule follows the row it is drawn under, so it stops there too rather than
+            // reaching one column past the table.
+            val last = c + 1usize == self.ncols
+            val trailing = if last && !bordered(self.style) then 1usize else 2usize
+
+            fill(out, g.h, w.at(c) + trailing)
 
             c += 1usize
 
@@ -491,13 +491,13 @@ struct Table
             if !mx || c > 0usize then out.write(" ".bytes)
 
             // Whether an escape is in effect, so that exactly one closes it. ANSI has no way to end
-            // a single attribute -- `RESET` ends them all -- so a cell that is underlined *and*
+            // a single attribute -- `reset` ends them all -- so a cell that is underlined *and*
             // styled has to re-open the underline after the style's reset, and only where there is
             // padding left for it to cover.
             var open = false
 
             if under
-                out.write(UNDERLINE.bytes)
+                out.write(underline.bytes)
                 open = true
 
             fill(out, " ", pre)
@@ -509,16 +509,16 @@ struct Table
             out.write(cell.text.view())
 
             if styled
-                out.write(RESET.bytes)
+                out.write(reset.bytes)
                 open = false
 
                 if under && pad_end && post > 0usize
-                    out.write(UNDERLINE.bytes)
+                    out.write(underline.bytes)
                     open = true
 
             if pad_end then fill(out, " ", post)
 
-            if open then out.write(RESET.bytes)
+            if open then out.write(reset.bytes)
 
             if pad_end then out.write(" ".bytes)
 
@@ -546,9 +546,14 @@ struct Table
         if grid then self.rule(w, Top, out)
 
         while r < nrows
+            // **A rule does not need a frame to be worth drawing.** A plain table with one line
+            // under its header is one of the commonest shapes there is, and tying every rule to
+            // having a border silently dropped the one the caller asked for. The two styles that
+            // genuinely have nowhere to put a rule are the two whose rows are not laid out in
+            // columns at all.
             if self.rules.at(r)
                 if md then self.md_rule(w, out)
-                elif grid then self.rule(w, Middle, out)
+                elif !tabbed(self.style) && !matrix(self.style) then self.rule(w, Middle, out)
 
             self.line_of(r, w, nrows, out)
 

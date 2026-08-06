@@ -24,12 +24,12 @@ Name it in your project's `package.hocon` and `sysl build` fetches it:
 
 ```hocon
 dependencies {
-  table { git = "github.com/sysl-lang/table", version = "0.1.1" }
+  table { git = "github.com/sysl-lang/table", version = "0.1.2" }
 }
 ```
 
 The coordinate is an identity rather than a URL, so it carries no `https://`, and `version` is the
-tag `v0.1.1` here.
+tag `v0.1.2` here.
 
 Or build it into an artifact and compile against that, which needs no fetching:
 
@@ -160,6 +160,23 @@ t.set_header_underlined(true)
 t.set_header_centered(true)
 ```
 
+**A rule does not need a frame.** A `Plain` table with one line under its header is one of the
+commonest shapes there is, and it is what `set_header_line(true)` gives with no style set at all:
+
+```
+ package  version  pure sysl
+────────────────────────────
+ table      0.1.2  true
+ harness    0.1.0  true
+```
+
+The rule is exactly as wide as the row it sits under. `Tabbed` and `Matrix` are the two styles with
+nowhere to put one, and there a rule is dropped.
+
+The header's emphasis is **on by default** — bold and underlined, in ANSI, and dropped for Markdown
+and tabbed output where a terminal is not what reads the result. `set_ansi(false)` turns off every
+escape the table would emit.
+
 `cell_style(col, esc)` puts an escape sequence around one cell's text, and sequences accumulate, so a
 cell may be given a colour and a weight by two calls. `underline(col)` is separate from it because an
 underline covers the cell's padding as well as its text, which is what makes a row of underlined
@@ -206,7 +223,7 @@ they are mistakes in the calling code rather than conditions to be handled.
 
 It was ported from [`edadma/table`](https://github.com/edadma/table), a Scala library, and holds that
 library's output byte for byte wherever the two can both express the case — the Scala tests were 445
-lines of exact expected output, and they are the specification this was written against. Four
+lines of exact expected output, and they are the specification this was written against. Five
 differences are deliberate:
 
 - **`Double` draws a double border.** There it was a name in an enumeration and nothing else: every
@@ -222,9 +239,20 @@ differences are deliberate:
   same things and no others, and the drawing code reads one glyph table instead of re-deriving the
   same four-way test at twelve separate sites.
 
+- **A rule with no frame is light, and stops where its row does.** There the borderless rule fell
+  through the same `if LIGHT else HEAVY` chain that made `DOUBLE` render heavy, so a plain table's
+  header rule came out in heavy box-drawing — and one character wider than the row it sat under,
+  because a trailing space was appended for a last column that an unframed row does not have.
+
 Two defects went with them: the width was measured in UTF-16 code units, which misaligns any column
 holding a character outside the Basic Multilingual Plane's narrow range; and rendering mutated the
 table it was rendering, so a table rendered, added to, and rendered again was quietly wrong.
+
+## What it needs
+
+A **sysl 0.0.18** toolchain or newer. The escapes it emits for a header's emphasis are
+[`sysl.term`](https://sysl.sh/library/term/)'s, which is where they belong and which arrived in that
+release; before it, this package carried its own copy of the three it uses.
 
 ## Tests
 
@@ -232,7 +260,7 @@ table it was rendering, so a table rendered, added to, and rendered again was qu
 sysl test .
 ```
 
-Forty-two cases, each asserting the exact bytes a caller gets. A table is one of the few things whose
+Forty-five cases, each asserting the exact bytes a caller gets. A table is one of the few things whose
 whole contract is its output — a column one space narrower than it should be is not a degraded table,
 it is a wrong one — so nothing here counts lines or looks for a substring.
 
