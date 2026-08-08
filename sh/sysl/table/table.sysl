@@ -156,10 +156,10 @@ bracket(s: Style, r: usize, nrows: usize, left: bool) -> string
         MatrixRounded -> true
         else false
 
-    if nrows == 1usize || (r > 0usize && r + 1usize < nrows)
+    if nrows == 1 || (r > 0 && r + 1 < nrows)
         if round then (if left then "\u{239c}" else "\u{239f}")
         else (if left then "\u{23a2}" else "\u{23a5}")
-    elif r == 0usize
+    elif r == 0
         if round then (if left then "\u{239b}" else "\u{239e}")
         else (if left then "\u{23a1}" else "\u{23a4}")
     else
@@ -226,7 +226,7 @@ struct Table
     rules: &Buf[bool]
     pending: bool
 
-    rows(self) -> usize = if self.ncols == 0usize then 0usize else self.cells.len() / self.ncols
+    rows(self) -> usize = if self.ncols == 0 then 0 else self.cells.len() / self.ncols
 
     is_empty(self) -> bool = self.cells.is_empty()
 
@@ -261,14 +261,14 @@ struct Table
     add(*self, values: []const &Display)
         require self.fits(values.len), "a row has one cell per column, and the first row sets how many"
 
-        if self.ncols == 0usize
+        if self.ncols == 0
             self.ncols = values.len
 
-            var c = 0usize
+            var c: usize = 0
 
             while c < self.ncols
                 self.aligns.push(Left)
-                c += 1usize
+                c += 1
 
         for v in values do self.cells.push(cell_of(v))
 
@@ -287,7 +287,7 @@ struct Table
         self.add(values)
 
         val plain = !markdown(self.style) && !tabbed(self.style)
-        var c = 0usize
+        var c: usize = 0
 
         while c < self.ncols
             // Written either way, and not only for the centred case: an alignment given to the
@@ -299,7 +299,7 @@ struct Table
 
             if self.header_underlined && plain then self.underline(c)
 
-            c += 1usize
+            c += 1
 
         // A Markdown table's separator row is not optional -- it is what makes the row above it a
         // header rather than data.
@@ -353,7 +353,7 @@ struct Table
     // cases -- the first row, which settles the width, and every row after it, which is held to it --
     // are asked here as one question.
     private fits(self, n: usize) -> bool =
-        if self.ncols == 0usize then n > 0usize else n == self.ncols
+        if self.ncols == 0 then n > 0 else n == self.ncols
 
     // The index of a cell in the row most recently added.
     private last(self, col: usize) -> usize
@@ -368,10 +368,10 @@ struct Table
     // The width of each column: its widest cell, the header included.
     private widths(self) -> &Buf[usize]
         var w: &Buf[usize] = buf()
-        var c = 0usize
+        var c: usize = 0
 
         while c < self.ncols
-            var m = 0usize
+            var m: usize = 0
             var i = c
 
             while i < self.cells.len()
@@ -382,7 +382,7 @@ struct Table
                 i += self.ncols
 
             w.push(m)
-            c += 1usize
+            c += 1
 
         w
     end widths
@@ -403,23 +403,23 @@ struct Table
             Top -> g.tr
             Middle -> g.rtee
             Bottom -> g.br
-        var c = 0usize
+        var c: usize = 0
 
         if bordered(self.style) then out.write(left.bytes)
 
         while c < self.ncols
-            if c > 0usize && self.dividers then out.write(junction.bytes)
+            if c > 0 && self.dividers then out.write(junction.bytes)
 
             // A cell is a space, its field, and a space -- except the last one of an unframed row,
             // which stops at its text because trailing spaces are invisible everywhere but in a
             // diff. The rule follows the row it is drawn under, so it stops there too rather than
             // reaching one column past the table.
-            val last = c + 1usize == self.ncols
-            val trailing = if last && !bordered(self.style) then 1usize else 2usize
+            val last = c + 1 == self.ncols
+            val trailing: usize = if last && !bordered(self.style) then 1 else 2
 
             fill(out, g.h, w.at(c) + trailing)
 
-            c += 1usize
+            c += 1
 
         if bordered(self.style) then out.write(right.bytes)
 
@@ -430,7 +430,7 @@ struct Table
     // at the end of the dashes means the column is right-aligned. There is no left-aligned spelling
     // because left is what a reader gets without one.
     private md_rule(self, w: &Buf[usize], out: *Writer)
-        var c = 0usize
+        var c: usize = 0
 
         out.write("|".bytes)
 
@@ -439,13 +439,13 @@ struct Table
 
             self.aligns.at(c) match
                 Right ->
-                    fill(out, "-", if w.at(c) > 1usize then w.at(c) - 1usize else 1usize)
+                    fill(out, "-", if w.at(c) > 1 then w.at(c) - 1 else 1)
                     out.write(":".bytes)
                 else fill(out, "-", w.at(c))
 
             out.write(" |".bytes)
 
-            c += 1usize
+            c += 1
 
         out.write("\n".bytes)
     end md_rule
@@ -455,7 +455,7 @@ struct Table
         val g = glyphs_of(self.style)
         val md = markdown(self.style)
         val mx = matrix(self.style)
-        var c = 0usize
+        var c: usize = 0
 
         while c < self.ncols
             val cell = self.cells.at(r * self.ncols + c)
@@ -463,12 +463,12 @@ struct Table
             val a = cell.align match
                 Some(x) -> x
                 None -> self.aligns.at(c)
-            val pre = a match
-                Left -> 0usize
+            val pre: usize = a match
+                Left -> 0
                 Right -> slack
-                Center -> slack / 2usize
+                Center -> slack / 2
             val post = slack - pre
-            val last = c + 1usize == self.ncols
+            val last = c + 1 == self.ncols
             // `dividers` is a question only for the styles that draw a grid. For the other three the
             // separator is not a choice a caller has: Markdown's is a bar, tabbed output's is a tab,
             // and a matrix has none -- so a table asked for both gets the one its style means.
@@ -480,7 +480,7 @@ struct Table
             // the padding is the line.
             val pad_end = !last || bordered(self.style) || md || under
 
-            if c == 0usize
+            if c == 0
                 if mx then out.write(bracket(self.style, r, nrows, true).bytes)
                 elif bordered(self.style) || md then out.write(g.vout.bytes)
             elif divided then out.write(g.vin.bytes)
@@ -488,7 +488,7 @@ struct Table
 
             // A matrix's bracket sits against its first column; everything else gets a space inside
             // the border.
-            if !mx || c > 0usize then out.write(" ".bytes)
+            if !mx || c > 0 then out.write(" ".bytes)
 
             // Whether an escape is in effect, so that exactly one closes it. ANSI has no way to end
             // a single attribute -- `reset` ends them all -- so a cell that is underlined *and*
@@ -512,7 +512,7 @@ struct Table
                 out.write(reset.bytes)
                 open = false
 
-                if under && pad_end && post > 0usize
+                if under && pad_end && post > 0
                     out.write(underline.bytes)
                     open = true
 
@@ -522,7 +522,7 @@ struct Table
 
             if pad_end then out.write(" ".bytes)
 
-            c += 1usize
+            c += 1
 
         if mx then out.write(bracket(self.style, r, nrows, false).bytes)
         elif bordered(self.style) || md then out.write(g.vout.bytes)
@@ -541,7 +541,7 @@ struct Table
         val nrows = self.rows()
         val grid = bordered(self.style)
         val md = markdown(self.style)
-        var r = 0usize
+        var r: usize = 0
 
         if grid then self.rule(w, Top, out)
 
@@ -557,7 +557,7 @@ struct Table
 
             self.line_of(r, w, nrows, out)
 
-            r += 1usize
+            r += 1
 
         if grid then self.rule(w, Bottom, out)
     end render
@@ -581,14 +581,14 @@ end Table
 // The width is not given here because the first row settles it, and the first row is written a line
 // or two later. Saying it twice is one more thing that can disagree.
 table() -> Table
-    Table(Plain, false, true, true, true, true, false, 0usize, buf(), buf(), buf(), false)
+    Table(Plain, false, true, true, true, true, false, 0, buf(), buf(), buf(), false)
 end table
 
 // One string, `n` times.
 private fill(out: *Writer, s: string, n: usize)
-    var i = 0usize
+    var i: usize = 0
 
     while i < n
         out.write(s.bytes)
-        i += 1usize
+        i += 1
 end fill

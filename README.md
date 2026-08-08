@@ -24,12 +24,12 @@ Name it in your project's `package.hocon` and `sysl build` fetches it:
 
 ```hocon
 dependencies {
-  table { git = "github.com/sysl-lang/table", version = "0.1.2" }
+  table { git = "github.com/sysl-lang/table", version = "0.1.3" }
 }
 ```
 
 The coordinate is an identity rather than a URL, so it carries no `https://`, and `version` is the
-tag `v0.1.2` here.
+tag `v0.1.3` here.
 
 Or build it into an artifact and compile against that, which needs no fetching:
 
@@ -166,8 +166,8 @@ commonest shapes there is, and it is what `set_header_line(true)` gives with no 
 ```
  package  version  pure sysl
 ────────────────────────────
- table      0.1.2  true
- harness    0.1.0  true
+ table      0.1.3  true
+ harness    0.1.1  true
 ```
 
 The rule is exactly as wide as the row it sits under. `Tabbed` and `Matrix` are the two styles with

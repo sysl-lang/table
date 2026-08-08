@@ -71,7 +71,7 @@ right_aligns_a_column() =
     t.header(["Item", "Count"])
     t.add(["apples", 5])
     t.add(["oranges", 123])
-    t.right_align(1usize)
+    t.right_align(1)
 
     same(t.text(), "  Item    Count\n apples       5\n oranges    123\n", "numbers line up on the right")
 
@@ -85,8 +85,8 @@ centers_columns_and_leaves_the_header_where_it_was() =
     t.header(["A", "B"])
     t.add(["x", "y"])
     t.add(["xxx", "yyy"])
-    t.set_column_align(0usize, Center)
-    t.set_column_align(1usize, Center)
+    t.set_column_align(0, Center)
+    t.set_column_align(1, Center)
 
     same(t.text(), " A    B\n  x    y\n xxx  yyy\n", "a column alignment reaches the data and not the header")
 
@@ -97,9 +97,9 @@ a_cell_alignment_overrides_its_column() =
     t.set_header_centered(false)
     t.header(["A", "B", "C"])
     t.add(["left", "center", "right"])
-    t.cell_align(0usize, Left)
-    t.cell_align(1usize, Center)
-    t.cell_align(2usize, Right)
+    t.cell_align(0, Left)
+    t.cell_align(1, Center)
+    t.cell_align(2, Right)
     t.add(["x", "x", "x"])
 
     same(t.text(), " A     B       C\n left  center  right\n x     x       x\n", "the override reaches one row")
@@ -114,7 +114,7 @@ odd_slack_leaves_the_extra_space_on_the_right() =
     t.set_header_centered(false)
     t.header(["ab", "x"])
     t.add(["abcd", "y"])
-    t.set_column_align(0usize, Center)
+    t.set_column_align(0, Center)
 
     same(t.text(), " ab    x\n abcd  y\n", "one space before, two after")
 
@@ -218,7 +218,7 @@ markdown_states_a_right_alignment_with_a_colon() =
     t.header(["Item", "Price"])
     t.add(["Widget", 9.99])
     t.add(["Gadget", 24.99])
-    t.right_align(1usize)
+    t.right_align(1)
 
     same(t.text(), "|  Item  | Price |\n| ------ | ----: |\n| Widget |  9.99 |\n| Gadget | 24.99 |\n", "the colon marks the alignment")
 
@@ -231,7 +231,7 @@ a_narrow_markdown_column_keeps_a_dash_beside_its_colon() =
     t.set_style(Markdown)
     t.header(["a"])
     t.add([1])
-    t.right_align(0usize)
+    t.right_align(0)
 
     same(t.text(), "| a |\n| -: |\n| 1 |\n", "one dash and the mark")
 
@@ -603,7 +603,7 @@ styles_one_cell() =
 
     t.header(["A"])
     t.add(["styled"])
-    t.cell_style(0usize, "\u{1b}[31m")
+    t.cell_style(0, "\u{1b}[31m")
 
     same(t.text(), "   A\n \u{1b}[31mstyled\u{1b}[0m\n", "the escape wraps the text and closes after it")
 
