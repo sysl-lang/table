@@ -22,7 +22,7 @@ package {
   version = "0.1.3"
 }
 
-// **`alloc`, because a table is a growable thing and cannot be anything else.** How many rows there
+// **`heap`, because a table is a growable thing and cannot be anything else.** How many rows there
 // will be is the caller's business and usually not known until the last one has been added, and each
 // cell holds the bytes its value rendered to -- so the storage is a `Buf` of cells and a `Buf` of
 // bytes per cell, both of which are the heap.
@@ -36,5 +36,5 @@ package {
 // A table therefore renders on a target with no operating system, provided the target has somewhere
 // to put the bytes.
 requires {
-  alloc = true
+  heap = true
 }
