@@ -622,3 +622,49 @@ renders_through_a_writer() =
     t.render(out)
 
     same(from_utf8(sink.text()).expect("a table is text"), " A\n 1\n", "the same bytes, without the string")
+
+// -- What a row has to be -----------------------------------------------------------------------------
+//
+// `add` requires a row to hold one cell per column, the first row being what sets how many. A
+// violated `require` **traps**, so a check that broke one would end the run rather than report into
+// it -- `@test(should_trap)` is the form that can observe a stop, since each of these runs in a
+// process of its own and passes by not coming back.
+//
+// **The refusal is written beside the call that is not refused.** A `should_trap` test passes for
+// any failure at all, its own setup included, so alone it cannot tell "the contract fired" from
+// "nothing worked". One row up to the column count and one row past it, and the difference between
+// them is the contract.
+
+@test(should_trap)
+a_row_with_more_cells_than_the_first_is_refused() =
+    var t = table()
+
+    t.header(["a", "b"])
+    t.add(["a", 1, "one too many"])
+
+@test(should_trap)
+and_so_is_one_with_fewer() =
+    var t = table()
+
+    t.header(["a", "b"])
+    t.add(["a"])
+
+// The call the two above are measured against: the same table, a row of exactly two, which goes in.
+@test
+a_row_of_the_right_width_is_taken() =
+    var t = plain_table()
+
+    t.header(["a", "b"])
+    t.add(["a", 1])
+
+    same(t.text(), " a  b\n a  1\n", "a row that fits is laid out like any other")
+
+// The first row is what fixes the width, so an empty table takes a row of any width at all -- which
+// is the half of the contract the two refusals above cannot show.
+@test
+the_first_row_sets_the_column_count() =
+    var t = plain_table()
+
+    t.add(["one", "two", "three"])
+
+    same(t.text(), " one  two  three\n", "three columns, because the first row had three cells")
