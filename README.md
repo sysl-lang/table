@@ -11,7 +11,7 @@ table, tab-separated fields, or a matrix in brackets.
 sh/sysl/table/
     table.sysl          the library
     tests.sysl          its tests, run by `sysl test .`
-package.hocon           who this package is, and what it needs of the machine
+sysl.hocon              who this package is, and what it needs of the machine
 ```
 
 The module is **`sh.sysl.table`**, and the three directories are that name: a dotted module name
@@ -20,16 +20,16 @@ claims a name nobody else will mint rather than the top-level word `table`.
 
 ## Using it
 
-Name it in your project's `package.hocon` and `sysl build` fetches it:
+Name it in your project's `sysl.hocon` and `sysl build` fetches it:
 
 ```hocon
 dependencies {
-  table { git = "github.com/sysl-lang/table", version = "0.1.3" }
+  table { git = "github.com/sysl-lang/table", version = "0.1.4" }
 }
 ```
 
 The coordinate is an identity rather than a URL, so it carries no `https://`, and `version` is the
-tag `v0.1.3` here.
+tag `v0.1.4` here.
 
 Or build it into an artifact and compile against that, which needs no fetching:
 
