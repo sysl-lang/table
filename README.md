@@ -24,12 +24,12 @@ Name it in your project's `sysl.hocon` and `sysl build` fetches it:
 
 ```hocon
 dependencies {
-  table { git = "github.com/sysl-lang/table", version = "0.1.4" }
+  table { git = "github.com/sysl-lang/table", version = "0.1.5" }
 }
 ```
 
 The coordinate is an identity rather than a URL, so it carries no `https://`, and `version` is the
-tag `v0.1.4` here.
+tag `v0.1.5` here.
 
 Or build it into an artifact and compile against that, which needs no fetching:
 

@@ -315,7 +315,7 @@ struct Table
     set_column_align(*self, col: usize, a: Align)
         require col < self.ncols, "column out of range"
 
-        self.aligns.set(col, a)
+        self.aligns[col] = a
     end set_column_align
 
     // Numbers read as numbers when their digits line up, which is the one alignment a table is
@@ -375,7 +375,7 @@ struct Table
             var i = c
 
             while i < self.cells.len()
-                val cw = self.cells.at(i).width
+                val cw = self.cells[i].width
 
                 if cw > m then m = cw
 
@@ -417,7 +417,7 @@ struct Table
             val last = c + 1 == self.ncols
             val trailing: usize = if last && !bordered(self.style) then 1 else 2
 
-            fill(out, g.h, w.at(c) + trailing)
+            fill(out, g.h, w[c] + trailing)
 
             c += 1
 
@@ -437,11 +437,11 @@ struct Table
         while c < self.ncols
             out.write(" ".bytes)
 
-            self.aligns.at(c) match
+            self.aligns[c] match
                 Right ->
-                    fill(out, "-", if w.at(c) > 1 then w.at(c) - 1 else 1)
+                    fill(out, "-", if w[c] > 1 then w[c] - 1 else 1)
                     out.write(":".bytes)
-                else fill(out, "-", w.at(c))
+                else fill(out, "-", w[c])
 
             out.write(" |".bytes)
 
@@ -458,11 +458,11 @@ struct Table
         var c: usize = 0
 
         while c < self.ncols
-            val cell = self.cells.at(r * self.ncols + c)
-            val slack = w.at(c) - cell.width
+            val cell = self.cells[r * self.ncols + c]
+            val slack = w[c] - cell.width
             val a = cell.align match
                 Some(x) -> x
-                None -> self.aligns.at(c)
+                None -> self.aligns[c]
             val pre: usize = a match
                 Left -> 0
                 Right -> slack
@@ -551,7 +551,7 @@ struct Table
             // having a border silently dropped the one the caller asked for. The two styles that
             // genuinely have nowhere to put a rule are the two whose rows are not laid out in
             // columns at all.
-            if self.rules.at(r)
+            if self.rules[r]
                 if md then self.md_rule(w, out)
                 elif !tabbed(self.style) && !matrix(self.style) then self.rule(w, Middle, out)
 
