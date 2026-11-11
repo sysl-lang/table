@@ -10,7 +10,7 @@
 // against `sysl.sum`, and compiles it as more modules.
 //
 //     dependencies {
-//       table { git = "github.com/sysl-lang/table", version = "0.1.5" }
+//       table { git = "github.com/sysl-lang/table", version = "0.1.6" }
 //     }
 //
 // The coordinate is identity rather than a URL, so it carries no `https://`, and the version is the
@@ -19,7 +19,7 @@
 
 package {
   name    = "table"
-  version = "0.1.5"
+  version = "0.1.6"
   sysl    = "0.9.0"
 }
 
